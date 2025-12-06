@@ -41,12 +41,14 @@ import { AuthModal } from './components/AuthModal';
 import { ProfileModal } from './components/ProfileModal';
 import { AdvancedSearch, SearchFilters } from './components/AdvancedSearch';
 import { ThemeToggle } from './components/ThemeToggle';
-import { GoalTracker, Goal } from './components/GoalTracker';
+import { GoalTracker } from './components/GoalTracker';
+import { Goal } from './types/goal';
 import { MonthlyReport } from './components/MonthlyReport';
 import { exportToMarkdown, exportToImage, downloadFile } from './utils/exportUtils';
 import { FRAMEWORKS, QUOTES } from './constants';
 import { ReviewEntry, FrameworkType, ViewState, WeeklyAnalysisResult, AIAnalysisResult, KnowledgePoint, AIModel, AIModelInfo } from './types';
 import { analyzeEntry, generateWeeklyReport, checkModelApiKey } from './services/aiService';
+import { goalApi, GoalVO } from './services/goalApi';
 import { reviewEntryApi } from './services/reviewEntryApi';
 import { userApi, LoginUserVO } from './services/userApi';
 import { knowledgePointApi } from './services/knowledgePointApi';
@@ -54,6 +56,9 @@ import { KnowledgePointCard } from './components/KnowledgePointCard';
 import { KnowledgePointEditor } from './components/KnowledgePointEditor';
 import { KnowledgePointDetail } from './components/KnowledgePointDetail';
 import { MindMap } from './components/MindMap';
+import { ComprehensiveStats } from './components/ComprehensiveStats';
+import { ReviewDashboard } from './components/ReviewDashboard';
+import { Statistics } from './components/Statistics';
 
 // Declare standard speech recognition for TS
 declare global {
@@ -119,9 +124,6 @@ const App = () => {
   
   // Goals
   const [goals, setGoals] = useState<Goal[]>([]);
-  
-  // Monthly Report
-  const [reportMonth, setReportMonth] = useState(new Date());
   
   // Knowledge Points
   const [knowledgePoints, setKnowledgePoints] = useState<KnowledgePoint[]>([]);
@@ -225,20 +227,6 @@ const App = () => {
 
     // Random quote on load
     setDailyQuote(QUOTES[Math.floor(Math.random() * QUOTES.length)]);
-    
-    // Load goals from localStorage (only if user is logged in)
-    if (currentUser) {
-    const savedGoals = localStorage.getItem('reflect_ai_goals');
-    if (savedGoals) {
-      try {
-        setGoals(JSON.parse(savedGoals));
-      } catch (e) {
-        console.error('Failed to parse goals', e);
-      }
-    }
-    } else {
-      setGoals([]);
-    }
 
     // Load saved AI model preference
     const savedModel = localStorage.getItem('reflect_ai_selected_model');
@@ -247,12 +235,36 @@ const App = () => {
     }
   }, [currentUser]);
 
-  // Save goals to localStorage (only if user is logged in)
+  // 转换后端目标数据到前端格式
+  const convertGoalVOToGoal = (goal: GoalVO): Goal => ({
+    id: goal.id.toString(),
+    title: goal.title,
+    description: goal.description,
+    targetDate: goal.targetDate,
+    progress: goal.progress,
+    status: goal.status,
+    createdAt: goal.createTime || new Date().toISOString(),
+    updatedAt: goal.updateTime || new Date().toISOString(),
+  });
+
+  // Load goals from API (only if user is logged in)
   useEffect(() => {
+    const loadGoals = async () => {
     if (currentUser) {
-    localStorage.setItem('reflect_ai_goals', JSON.stringify(goals));
+        try {
+          const goalsData = await goalApi.getMyGoals();
+          const convertedGoals = goalsData.map(convertGoalVOToGoal);
+          setGoals(convertedGoals);
+        } catch (error) {
+          console.error('Failed to load goals:', error);
+          setGoals([]);
     }
-  }, [goals, currentUser]);
+      } else {
+        setGoals([]);
+      }
+    };
+    loadGoals();
+  }, [currentUser]);
 
   // Save selected model to localStorage
   useEffect(() => {
@@ -582,7 +594,7 @@ const App = () => {
         // 更新本地状态
         setEntries(prev => [newEntry, ...prev]);
         triggerToast("复盘已保存");
-        setView('DASHBOARD');
+        setView('REVIEW');
       }
     } catch (error) {
       console.error(error);
@@ -650,7 +662,7 @@ const App = () => {
         // 更新本地状态
         setEntries(prev => [newEntry, ...prev]);
         triggerToast("复盘已保存");
-        setView('DASHBOARD');
+        setView('REVIEW');
       }
     } catch (error) {
       console.error(error);
@@ -675,7 +687,7 @@ const App = () => {
       try {
         await reviewEntryApi.deleteEntry(id);
       setEntries(prev => prev.filter(e => e.id !== id));
-      if (view === 'ENTRY_DETAIL') setView('DASHBOARD');
+      if (view === 'ENTRY_DETAIL') setView('REVIEW');
       triggerToast("已删除");
       } catch (error) {
         console.error(error);
@@ -713,31 +725,65 @@ const App = () => {
       }
   };
 
+  // 重新加载目标列表
+  const reloadGoals = async () => {
+      try {
+          const goalsData = await goalApi.getMyGoals();
+          const convertedGoals = goalsData.map(convertGoalVOToGoal);
+          setGoals(convertedGoals);
+      } catch (error) {
+          console.error('Failed to reload goals:', error);
+      }
+  };
+
   // Goals handlers
-  const handleAddGoal = (goalData: Omit<Goal, 'id' | 'createdAt' | 'updatedAt'>) => {
-      const newGoal: Goal = {
-          ...goalData,
-          id: Date.now().toString(),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-      };
-      setGoals(prev => [...prev, newGoal]);
+  const handleAddGoal = async (goalData: Omit<Goal, 'id' | 'createdAt' | 'updatedAt'>) => {
+      try {
+          await goalApi.addGoal({
+              title: goalData.title,
+              description: goalData.description,
+              targetDate: goalData.targetDate,
+              progress: goalData.progress,
+              status: goalData.status,
+          });
+          
+          await reloadGoals();
       triggerToast("目标已创建");
+      } catch (error) {
+          console.error('Failed to add goal:', error);
+          triggerToast("创建目标失败", "error");
+      }
   };
 
-  const handleUpdateGoal = (id: string, updates: Partial<Goal>) => {
-      setGoals(prev => prev.map(goal => 
-          goal.id === id 
-              ? { ...goal, ...updates, updatedAt: new Date().toISOString() }
-              : goal
-      ));
+  const handleUpdateGoal = async (id: string, updates: Partial<Goal>) => {
+      try {
+          await goalApi.updateGoal({
+              id: parseInt(id),
+              title: updates.title,
+              description: updates.description,
+              targetDate: updates.targetDate,
+              progress: updates.progress,
+              status: updates.status,
+          });
+          
+          await reloadGoals();
       triggerToast("目标已更新");
+      } catch (error) {
+          console.error('Failed to update goal:', error);
+          triggerToast("更新目标失败", "error");
+      }
   };
 
-  const handleDeleteGoal = (id: string) => {
+  const handleDeleteGoal = async (id: string) => {
       if (window.confirm("确定删除这个目标？")) {
-          setGoals(prev => prev.filter(goal => goal.id !== id));
+          try {
+              await goalApi.deleteGoal(parseInt(id));
+              await reloadGoals();
           triggerToast("目标已删除");
+          } catch (error) {
+              console.error('Failed to delete goal:', error);
+              triggerToast("删除目标失败", "error");
+          }
       }
   };
 
@@ -921,8 +967,223 @@ const App = () => {
 
   // --- RENDER SECTIONS ---
 
+  // 渲染复盘界面
+  const renderReview = () => {
+    return (
+      <ReviewDashboard
+        entries={entries}
+        isLoadingEntries={isLoadingEntries}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        frameworkFilter={frameworkFilter}
+        setFrameworkFilter={setFrameworkFilter}
+        calendarMonth={calendarMonth}
+        setCalendarMonth={setCalendarMonth}
+        dashboardMode={dashboardMode}
+        setDashboardMode={setDashboardMode}
+        searchFilters={searchFilters}
+        setSearchFilters={setSearchFilters}
+        showSettings={showSettings}
+        setShowSettings={setShowSettings}
+        showWeeklyReport={showWeeklyReport}
+        setShowWeeklyReport={setShowWeeklyReport}
+        notificationsEnabled={notificationsEnabled}
+        handleToggleNotifications={handleToggleNotifications}
+        handleStartNew={handleStartNew}
+        handleCalendarDateClick={handleCalendarDateClick}
+        handleExportData={handleExportData}
+        handleExportMarkdown={handleExportMarkdown}
+        handleImportData={handleImportData}
+        handleGenerateWeeklyReport={handleGenerateWeeklyReport}
+        onEntryClick={(entry) => {
+          setSelectedEntry(entry);
+          setView('ENTRY_DETAIL');
+        }}
+        onBack={() => setView('DASHBOARD')}
+        greeting={greeting}
+        dailyQuote={dailyQuote}
+        randomMemory={randomMemory}
+        weeklyReport={weeklyReport}
+        isGeneratingReport={isGeneratingReport}
+      />
+    );
+  };
+
+  // 综合型主界面
   const renderDashboard = () => (
-    <div className="max-w-6xl mx-auto px-6 py-10 relative">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* 左侧主内容区 */}
+          <div className="lg:col-span-3 space-y-6">
+            {/* Header */}
+            <header className="flex flex-col md:flex-row md:justify-between md:items-center gap-6">
+              <div className="flex-1">
+                <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-800 dark:text-slate-100 tracking-tight mb-2">
+                  {greeting}
+                </h1>
+                <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base">
+                  综合型个人成长管理平台
+                </p>
+              </div>
+              <div className="flex gap-3 items-center">
+                {currentUser ? (
+                  <div 
+                    className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+                    onClick={() => setShowProfileModal(true)}
+                  >
+                    {currentUser.userAvatar ? (
+                      <img 
+                        src={currentUser.userAvatar} 
+                        alt={currentUser.userName || currentUser.userAccount}
+                        className="w-10 h-10 rounded-full border-2 border-indigo-200 dark:border-indigo-700"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-semibold text-sm border-2 border-indigo-200 dark:border-indigo-700">
+                        {(currentUser.userName || currentUser.userAccount || 'U').charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="hidden sm:block">
+                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{currentUser.userName || currentUser.userAccount}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <Button 
+                    onClick={() => setShowAuthModal(true)}
+                    variant="secondary"
+                    className="rounded-xl px-4 text-sm"
+                  >
+                    登录
+                  </Button>
+                )}
+                <Button 
+                  onClick={() => setShowSettings(true)}
+                  variant="secondary"
+                  className="w-12 px-0 flex items-center justify-center rounded-xl"
+                >
+                  <Settings size={20} />
+                </Button>
+              </div>
+            </header>
+
+            {/* 综合统计 */}
+            <div>
+              <ComprehensiveStats 
+                entries={entries} 
+                goals={goals} 
+                knowledgePoints={knowledgePoints}
+              />
+            </div>
+
+          </div>
+
+          {/* 右侧功能栏 */}
+          <div className="lg:col-span-1">
+            <div className="sticky top-6 space-y-4">
+              <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-3xl p-5 border border-slate-200/50 dark:border-slate-700/50 shadow-sm">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">功能模块</h2>
+                <div className="space-y-3">
+                  {/* 复盘记录 */}
+                  <button
+                    onClick={() => setView('REVIEW')}
+                    className="group w-full bg-slate-50/50 dark:bg-slate-700/30 rounded-2xl p-4 border border-slate-200/50 dark:border-slate-700/50 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:border-indigo-200 dark:hover:border-indigo-800 transition-all text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 group-hover:scale-110 transition-transform">
+                        <Sparkles size={20} className="text-indigo-600 dark:text-indigo-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-0.5">复盘记录</h3>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                          记录每日思考
+                        </p>
+                      </div>
+                      <ChevronLeft size={16} className="text-slate-400 rotate-180 flex-shrink-0" />
+                    </div>
+                  </button>
+
+                  {/* 目标追踪 */}
+                  <button
+                    onClick={() => setView('GOALS')}
+                    className="group w-full bg-slate-50/50 dark:bg-slate-700/30 rounded-2xl p-4 border border-slate-200/50 dark:border-slate-700/50 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-200 dark:hover:border-blue-800 transition-all text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-blue-100 dark:bg-blue-900/30 group-hover:scale-110 transition-transform">
+                        <Target size={20} className="text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-0.5">目标追踪</h3>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                          设定追踪目标
+                        </p>
+                      </div>
+                      <ChevronLeft size={16} className="text-slate-400 rotate-180 flex-shrink-0" />
+                    </div>
+                  </button>
+
+                  {/* 知识点 */}
+                  <button
+                    onClick={() => setView('KNOWLEDGE_POINTS')}
+                    className="group w-full bg-slate-50/50 dark:bg-slate-700/30 rounded-2xl p-4 border border-slate-200/50 dark:border-slate-700/50 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:border-purple-200 dark:hover:border-purple-800 transition-all text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-purple-100 dark:bg-purple-900/30 group-hover:scale-110 transition-transform">
+                        <BookOpen size={20} className="text-purple-600 dark:text-purple-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-0.5">知识点</h3>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                          整理知识体系
+                        </p>
+                      </div>
+                      <ChevronLeft size={16} className="text-slate-400 rotate-180 flex-shrink-0" />
+                    </div>
+                  </button>
+
+                  {/* 思维导图 */}
+                  <button
+                    onClick={() => setView('MINDMAP')}
+                    className="group w-full bg-slate-50/50 dark:bg-slate-700/30 rounded-2xl p-4 border border-slate-200/50 dark:border-slate-700/50 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:border-emerald-200 dark:hover:border-emerald-800 transition-all text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 group-hover:scale-110 transition-transform">
+                        <Network size={20} className="text-emerald-600 dark:text-emerald-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-0.5">思维导图</h3>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                          可视化思考
+                        </p>
+                      </div>
+                      <ChevronLeft size={16} className="text-slate-400 rotate-180 flex-shrink-0" />
+                    </div>
+                  </button>
+
+                  {/* 统计 */}
+                  <button
+                    onClick={() => setView('STATISTICS')}
+                    className="group w-full bg-slate-50/50 dark:bg-slate-700/30 rounded-2xl p-4 border border-slate-200/50 dark:border-slate-700/50 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:border-amber-200 dark:hover:border-amber-800 transition-all text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-900/30 group-hover:scale-110 transition-transform">
+                        <BarChart3 size={20} className="text-amber-600 dark:text-amber-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-0.5">统计</h3>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                          数据统计分析
+                        </p>
+                      </div>
+                      <ChevronLeft size={16} className="text-slate-400 rotate-180 flex-shrink-0" />
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/20 dark:bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowSettings(false)}>
@@ -952,368 +1213,10 @@ const App = () => {
                             <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${notificationsEnabled ? 'left-6' : 'left-1'}`}></div>
                         </div>
                     </button>
-                    
-                    <div className="h-px bg-slate-100 dark:bg-slate-700 my-2"></div>
-
-                    <div className="space-y-2">
-                        <button onClick={handleExportData} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium transition-colors text-sm border border-slate-100 dark:border-slate-700">
-                        <Download size={18} /> 导出备份 (JSON)
-                    </button>
-                        <button onClick={handleExportMarkdown} className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium transition-colors text-sm border border-slate-100 dark:border-slate-700">
-                            <Download size={18} /> 导出 Markdown
-                        </button>
-                    </div>
-                    <label className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium transition-colors cursor-pointer text-sm border border-slate-100 dark:border-slate-700">
-                        <Upload size={18} /> 导入恢复 (JSON)
-                        <input type="file" accept=".json" onChange={handleImportData} className="hidden" />
-                    </label>
                 </div>
             </div>
         </div>
       )}
-
-      {/* Weekly Report Modal */}
-      {showWeeklyReport && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
-             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl relative overflow-hidden min-h-[400px] animate-in fade-in zoom-in-95 duration-300">
-                <button onClick={() => setShowWeeklyReport(false)} className="absolute top-4 right-4 p-2 rounded-full hover:bg-slate-100 text-slate-400 z-10"><X size={20}/></button>
-                
-                {isGeneratingReport ? (
-                    <div className="flex flex-col items-center justify-center h-[400px] text-indigo-600">
-                        <div className="animate-spin mb-4"><Sparkles size={32} /></div>
-                        <p className="font-medium animate-pulse">正在回顾你的成长轨迹...</p>
-                    </div>
-                ) : weeklyReport ? (
-                    <div className="p-8">
-                        <div className="flex items-center gap-2 text-indigo-600 font-bold tracking-widest text-xs uppercase mb-2">
-                             <BarChart3 size={14}/> 阶段性成长报告
-                        </div>
-                        <h2 className="text-3xl font-extrabold text-slate-800 mb-1">{weeklyReport.dateRange}</h2>
-                        <p className="text-slate-500 mb-8 text-sm">基于最近复盘记录的智能洞察</p>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                            <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100">
-                                <h4 className="font-bold text-indigo-900 mb-2 text-sm">关键词</h4>
-                                <div className="flex flex-wrap gap-2">
-                                    {weeklyReport.keywords.map(k => (
-                                        <span key={k} className="bg-white text-indigo-600 px-2 py-1 rounded text-xs font-bold shadow-sm">{k}</span>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="bg-purple-50 p-6 rounded-2xl border border-purple-100">
-                                <h4 className="font-bold text-purple-900 mb-2 text-sm">情绪趋势</h4>
-                                <p className="text-purple-800 text-sm leading-relaxed">{weeklyReport.emotionalTrend}</p>
-                            </div>
-                        </div>
-
-                        <div className="mb-8">
-                             <h4 className="font-bold text-slate-800 mb-3 flex items-center"><Target size={16} className="mr-2 text-rose-500"/> 成长聚焦</h4>
-                             <div className="bg-rose-50 border-l-4 border-rose-300 p-4 rounded-r-lg">
-                                <p className="text-slate-700 text-sm leading-relaxed">{weeklyReport.growthFocus}</p>
-                             </div>
-                        </div>
-
-                        <div className="bg-gradient-to-r from-slate-800 to-slate-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
-                             <Quote size={48} className="absolute -top-2 -right-2 text-white/5 rotate-12" />
-                             <h4 className="font-bold text-indigo-200 text-xs uppercase mb-2">教练建议</h4>
-                             <p className="font-medium leading-relaxed font-serif text-lg">"{weeklyReport.suggestion}"</p>
-                        </div>
-                    </div>
-                ) : null}
-             </div>
-          </div>
-      )}
-
-      {/* Header */}
-      <header className="flex flex-col md:flex-row md:justify-between md:items-center mb-10 gap-6">
-        <div className="flex-1">
-          <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">{greeting}</h1>
-          <div className="mt-4 relative pl-6 border-l-2 border-indigo-200">
-            <Quote size={20} className="text-indigo-400 absolute -left-2 top-0 bg-white p-0.5" />
-            <div className="space-y-1.5">
-              <p className="text-slate-700 text-sm leading-relaxed font-serif italic tracking-wide">
-                {dailyQuote.text}
-              </p>
-              {dailyQuote.author && (
-                <p className="text-slate-500 text-xs font-medium">
-                  — {dailyQuote.author}
-                </p>
-              )}
-        </div>
-          </div>
-        </div>
-        <div className="flex gap-3 w-full md:w-auto items-center">
-          {/* User Info / Login Button */}
-          {currentUser ? (
-            <div 
-              className="flex items-center gap-3 mr-2 cursor-pointer hover:opacity-80 transition-opacity"
-              onClick={() => setShowProfileModal(true)}
-            >
-              {currentUser.userAvatar ? (
-                <img 
-                  src={currentUser.userAvatar} 
-                  alt={currentUser.userName || currentUser.userAccount}
-                  className="w-9 h-9 rounded-full border-2 border-indigo-200"
-                />
-              ) : (
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-semibold text-sm border-2 border-indigo-200">
-                  {(currentUser.userName || currentUser.userAccount || 'U').charAt(0).toUpperCase()}
-                </div>
-              )}
-              <div className="hidden sm:block">
-                <p className="text-sm font-semibold text-slate-700">{currentUser.userName || currentUser.userAccount}</p>
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowProfileModal(true);
-                    }}
-                    className="text-xs text-indigo-600 hover:text-indigo-700 transition-colors"
-                  >
-                    资料
-                  </button>
-                  <span className="text-xs text-slate-300">|</span>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleLogout();
-                    }}
-                    className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
-                  >
-                    退出
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <Button 
-              onClick={() => setShowAuthModal(true)}
-              variant="secondary"
-              className="rounded-xl px-4 text-sm"
-            >
-              登录
-            </Button>
-          )}
-          
-             <Button 
-                onClick={() => setShowSettings(true)}
-                variant="secondary"
-                className="w-12 px-0 flex items-center justify-center rounded-xl"
-            >
-                <Settings size={20} />
-            </Button>
-            <Button 
-                onClick={() => handleStartNew()} 
-                icon={<Plus size={20} />} 
-                size="lg"
-                className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200/50 rounded-xl px-6 flex-1 md:flex-none"
-            >
-            开始复盘
-            </Button>
-        </div>
-      </header>
-
-      {/* Top Stats & Tools */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12">
-        <div className="lg:col-span-2 space-y-6">
-             <HabitTracker entries={entries} />
-             <Stats entries={entries} />
-        </div>
-        
-        {/* Sidebar */}
-        <div className="space-y-6">
-             {/* Quick Actions */}
-             <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setView('GOALS')}
-                  className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 hover:shadow-lg transition-all text-left group"
-                >
-                  <Target size={20} className="text-indigo-600 dark:text-indigo-400 mb-2 group-hover:scale-110 transition-transform" />
-                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">目标追踪</p>
-                </button>
-                <button
-                  onClick={() => setView('MONTHLY_REPORT')}
-                  className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 hover:shadow-lg transition-all text-left group"
-                >
-                  <BarChart3 size={20} className="text-purple-600 dark:text-purple-400 mb-2 group-hover:scale-110 transition-transform" />
-                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">月度报告</p>
-                </button>
-                <button
-                  onClick={() => setView('KNOWLEDGE_POINTS')}
-                  className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 hover:shadow-lg transition-all text-left group"
-                >
-                  <BookOpen size={20} className="text-emerald-600 dark:text-emerald-400 mb-2 group-hover:scale-110 transition-transform" />
-                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">知识点</p>
-                </button>
-                <button
-                  onClick={() => setView('MINDMAP')}
-                  className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 hover:shadow-lg transition-all text-left group"
-                >
-                  <Network size={20} className="text-purple-600 dark:text-purple-400 mb-2 group-hover:scale-110 transition-transform" />
-                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">思维导图</p>
-                </button>
-             </div>
-
-             {/* AI Insight Card */}
-             <div 
-                className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-6 text-white shadow-xl shadow-indigo-200 cursor-pointer hover:scale-[1.02] transition-transform relative overflow-hidden group"
-                onClick={handleGenerateWeeklyReport}
-             >
-                <div className="absolute top-0 right-0 p-20 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
-                <h3 className="font-bold text-lg mb-2 flex items-center relative z-10">
-                    <Sparkles size={18} className="mr-2 text-yellow-300"/> 生成周报
-                </h3>
-                <p className="text-indigo-100 text-sm leading-relaxed opacity-90 relative z-10 mb-4">
-                    让 AI 帮你回顾最近一周的状态、成就与潜在问题。
-                </p>
-                <div className="inline-flex items-center text-xs font-bold bg-white/20 px-3 py-1 rounded-full backdrop-blur-sm">
-                    点击生成 <BarChart3 size={12} className="ml-1"/>
-                </div>
-             </div>
-             
-             {/* Memory Capsule Widget */}
-             {randomMemory && (
-                 <div className="bg-amber-50 rounded-2xl p-6 border border-amber-100 relative overflow-hidden hover:shadow-md transition-shadow">
-                     <div className="absolute top-0 right-0 -mt-4 -mr-4 text-amber-200 opacity-50">
-                         <Clock size={80} />
-                     </div>
-                     <div className="relative z-10">
-                         <div className="flex items-center gap-2 text-amber-600 font-bold text-xs uppercase mb-3">
-                             <History size={14} /> 往昔回响
-                         </div>
-                         <p className="text-slate-500 text-xs mb-2">
-                             {new Date(randomMemory.date).toLocaleDateString()} · {FRAMEWORKS[randomMemory.framework].label}
-                         </p>
-                         <div 
-                            className="bg-white/80 backdrop-blur-sm rounded-xl p-3 text-sm text-slate-700 line-clamp-3 mb-3 cursor-pointer hover:bg-white transition-colors border border-amber-100/50"
-                            onClick={() => { setSelectedEntry(randomMemory); setView('ENTRY_DETAIL'); }}
-                        >
-                             {randomMemory.aiAnalysis?.summary || "点击查看详情..."}
-                         </div>
-                         <button 
-                            onClick={() => { setSelectedEntry(randomMemory); setView('ENTRY_DETAIL'); }}
-                            className="text-amber-700 text-xs font-bold hover:underline"
-                        >
-                             查看那时的我 &rarr;
-                         </button>
-                     </div>
-                 </div>
-             )}
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <section>
-        {/* Loading Indicator */}
-        {isLoadingEntries && (
-          <div className="text-center py-20">
-            <div className="inline-flex items-center gap-2 text-indigo-600">
-              <div className="animate-spin"><Sparkles size={20} /></div>
-              <span className="font-medium">加载中...</span>
-            </div>
-          </div>
-        )}
-        
-        {/* Toolbar */}
-        {!isLoadingEntries && (
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4 sticky top-4 z-30 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-sm py-2 -mx-2 px-2 rounded-xl border border-slate-200/50 dark:border-slate-700/50">
-          <div className="flex items-center gap-2">
-            <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
-                 <button 
-                    onClick={() => setDashboardMode('LIST')}
-                    className={`p-2 rounded-md transition-all ${dashboardMode === 'LIST' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                 >
-                    <LayoutGrid size={18} />
-                 </button>
-                 <button 
-                    onClick={() => setDashboardMode('CALENDAR')}
-                    className={`p-2 rounded-md transition-all ${dashboardMode === 'CALENDAR' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                 >
-                    <CalendarIcon size={18} />
-                 </button>
-            </div>
-            
-            <div className="flex items-center gap-2">
-            <div className="relative group hidden sm:block">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
-                <input 
-                    type="text" 
-                    placeholder="搜索..." 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 pr-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900 focus:border-indigo-400 w-48 transition-all dark:text-slate-100"
-                />
-              </div>
-              <button
-                onClick={() => setShowAdvancedSearch(true)}
-                className="p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-                title="高级搜索"
-              >
-                <Search size={16} className="text-slate-400" />
-              </button>
-            </div>
-          </div>
-
-          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 md:pb-0 items-center">
-                {(searchFilters || searchQuery) && (
-                  <button
-                    onClick={() => {
-                      setSearchFilters(null);
-                      setSearchQuery('');
-                      setFrameworkFilter('ALL');
-                    }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100 transition-all flex items-center gap-1"
-                  >
-                    <X size={12} />
-                    清除筛选
-                  </button>
-                )}
-                <button 
-                    onClick={() => setFrameworkFilter('ALL')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border transition-all ${frameworkFilter === 'ALL' ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-200' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
-                >
-                    全部
-                </button>
-                {Object.values(FRAMEWORKS).map(fw => (
-                    <button 
-                        key={fw.id}
-                        onClick={() => setFrameworkFilter(fw.id)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border transition-all ${frameworkFilter === fw.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-200' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
-                    >
-                        {fw.label}
-                    </button>
-                ))}
-          </div>
-        </div>
-        )}
-
-        {/* View Content */}
-        {!isLoadingEntries && dashboardMode === 'CALENDAR' ? (
-             <CalendarView 
-                entries={entries} 
-                onDateClick={handleCalendarDateClick}
-                currentDate={calendarMonth}
-                onMonthChange={setCalendarMonth}
-             />
-        ) : !isLoadingEntries ? (
-            <>
-                {filteredEntries.length === 0 ? (
-                <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-200 shadow-sm">
-                    <History className="mx-auto text-slate-300 mb-4" size={48} />
-                    <h3 className="text-slate-600 font-medium mb-1">暂无记录</h3>
-                    <p className="text-slate-400 text-xs mb-6">所有的伟大，都源于一次开始。</p>
-                    <Button onClick={() => handleStartNew()} variant="secondary">新建复盘</Button>
-                </div>
-                ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20 animate-in fade-in duration-500">
-                    {filteredEntries.map(entry => (
-                    <EntryCard key={entry.id} entry={entry} onClick={() => { setSelectedEntry(entry); setView('ENTRY_DETAIL'); }} />
-                    ))}
-                </div>
-                )}
-            </>
-        ) : null}
-      </section>
     </div>
   );
 
@@ -1329,7 +1232,7 @@ const App = () => {
         <header className={`flex items-center justify-between mb-8 shrink-0 ${isZenMode ? 'p-6 max-w-4xl mx-auto w-full' : ''}`}>
           <div className="flex items-center">
             <button 
-                onClick={() => isEditing && selectedEntry ? setView('ENTRY_DETAIL') : setView('DASHBOARD')}
+                onClick={() => isEditing && selectedEntry ? setView('ENTRY_DETAIL') : setView('REVIEW')}
                 className={`flex items-center hover:text-indigo-600 transition-colors font-medium px-4 py-2 hover:bg-slate-100 rounded-lg -ml-4 ${isZenMode ? 'text-slate-400' : 'text-slate-500'}`}
             >
                 <ChevronLeft size={20} className="mr-1" />
@@ -1785,44 +1688,15 @@ const App = () => {
     </div>
   );
 
-  const renderMonthlyReport = () => (
-    <div className="max-w-6xl mx-auto px-6 py-10">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-extrabold text-slate-800 dark:text-slate-100 tracking-tight">月度报告</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-2">查看你的复盘数据统计</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              const prevMonth = new Date(reportMonth);
-              prevMonth.setMonth(prevMonth.getMonth() - 1);
-              setReportMonth(prevMonth);
-            }}
-            className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-          >
-            <ChevronLeft size={20} className="text-slate-500 dark:text-slate-400" />
-          </button>
-          <button
-            onClick={() => {
-              const nextMonth = new Date(reportMonth);
-              nextMonth.setMonth(nextMonth.getMonth() + 1);
-              setReportMonth(nextMonth);
-            }}
-            className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-          >
-            <ChevronLeft size={20} className="text-slate-500 dark:text-slate-400 rotate-180" />
-          </button>
-          <button
-            onClick={() => setView('DASHBOARD')}
-            className="p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-          >
-            <X size={20} className="text-slate-500 dark:text-slate-400" />
-          </button>
-        </div>
-      </div>
-      <MonthlyReport entries={entries} month={reportMonth} />
-    </div>
+
+  const renderStatistics = () => (
+    <Statistics 
+      entries={entries}
+      goals={goals}
+      knowledgePoints={knowledgePoints}
+      selectedModel={selectedModel}
+      onBack={() => setView('DASHBOARD')}
+    />
   );
 
   const renderKnowledgePoints = () => (
@@ -2037,10 +1911,11 @@ const App = () => {
       )}
 
       {view === 'DASHBOARD' && renderDashboard()}
+      {view === 'REVIEW' && renderReview()}
       {view === 'NEW_ENTRY' && renderNewEntry()}
       {view === 'ENTRY_DETAIL' && renderEntryDetail()}
       {view === 'GOALS' && renderGoals()}
-      {view === 'MONTHLY_REPORT' && renderMonthlyReport()}
+      {view === 'STATISTICS' && renderStatistics()}
       {view === 'KNOWLEDGE_POINTS' && renderKnowledgePoints()}
       {view === 'KNOWLEDGE_POINT_DETAIL' && renderKnowledgePointDetail()}
       {view === 'KNOWLEDGE_POINT_EDIT' && renderKnowledgePointEdit()}

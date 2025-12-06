@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Layout, Edit3, X, CornerDownRight, Trash2, User, Target, Layers, BookOpen, Lightbulb, Zap, Star, Eye, Presentation, Maximize2, Minimize2, PlayCircle, CheckCircle2, Circle, XCircle, Clock, MapPin } from 'lucide-react';
+import { Layout, Edit3, X, CornerDownRight, Trash2, User, Target, Layers, BookOpen, Lightbulb, Zap, Star, Eye, Presentation, Maximize2, Minimize2, PlayCircle, CheckCircle2, Circle, XCircle, Clock, MapPin, Plus, Folder, FolderOpen, ChevronRight } from 'lucide-react';
 import { MindMapNode, MindMapNodeData, NodeStatus } from './MindMapNode';
 import { mindMapApi } from '../services/mindMapApi';
+import { mindMapCategoryApi, MindMapCategoryVO } from '../services/mindMapCategoryApi';
 
 // 模式类型
 type MindMapMode = 'view' | 'edit' | 'presentation';
@@ -97,15 +98,64 @@ export const MindMap: React.FC<MindMapProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   
+  // 分类相关状态
+  const [currentCategoryId, setCurrentCategoryId] = useState<number | null>(null);
+  const [categories, setCategories] = useState<MindMapCategoryVO[]>([]);
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  
   // 使用 useMemo 确保数据清理只在必要时执行
   const mapData = useMemo(() => cleanMapData(mapDataRaw) || initialMapData, [mapDataRaw]);
   
-  // 从后端加载数据
+  // 加载分类列表
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const cats = await mindMapCategoryApi.getMyCategories();
+        setCategories(cats);
+        if (cats.length > 0 && (!currentCategoryId || !cats.find(c => c.id === currentCategoryId))) {
+          setCurrentCategoryId(cats[0].id);
+        } else if (cats.length === 0) {
+          // 如果没有分类，自动创建默认分类
+          try {
+            const defaultCategoryId = await mindMapCategoryApi.addCategory({
+              name: '默认分类',
+              description: '',
+            });
+            const updatedCats = await mindMapCategoryApi.getMyCategories();
+            setCategories(updatedCats);
+            setCurrentCategoryId(defaultCategoryId);
+          } catch (createError) {
+            console.error('Failed to create default category:', createError);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load categories:', error);
+        // 如果是500错误，可能是表不存在，尝试创建默认分类
+        if (error instanceof Error && error.message.includes('500')) {
+          try {
+            const defaultCategoryId = await mindMapCategoryApi.addCategory({
+              name: '默认分类',
+              description: '',
+            });
+            const updatedCats = await mindMapCategoryApi.getMyCategories();
+            setCategories(updatedCats);
+            setCurrentCategoryId(defaultCategoryId);
+          } catch (createError) {
+            console.error('Failed to create default category after error:', createError);
+          }
+        }
+      }
+    };
+    loadCategories();
+  }, []);
+  
+  // 从后端加载数据（根据当前分类）
   useEffect(() => {
     const loadMindMap = async () => {
       try {
         setIsLoading(true);
-        const data = await mindMapApi.getMyMindMap();
+        const data = await mindMapApi.getMyMindMap(currentCategoryId || undefined);
         setMapDataRaw(data);
       } catch (error) {
         console.error('Failed to load mind map:', error);
@@ -115,20 +165,77 @@ export const MindMap: React.FC<MindMapProps> = ({
         setIsLoading(false);
       }
     };
+    if (currentCategoryId !== null) {
     loadMindMap();
-  }, []);
+    }
+  }, [currentCategoryId]);
 
   // 保存数据到后端
   const saveMindMap = async (newData: MindMapNodeData) => {
     try {
       setIsSaving(true);
-      await mindMapApi.updateMyMindMap(newData, title);
+      await mindMapApi.updateMyMindMap(newData, title, currentCategoryId || undefined);
       setMapDataRaw(cleanMapData(newData)!);
     } catch (error) {
       console.error('Failed to save mind map:', error);
       throw error;
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // 创建新分类
+  const handleCreateCategory = async () => {
+    if (!newCategoryName.trim()) {
+      alert('请输入分类名称');
+      return;
+    }
+    if (categories.find(c => c.name === newCategoryName.trim())) {
+      alert('该分类已存在');
+      return;
+    }
+    try {
+      const categoryId = await mindMapCategoryApi.addCategory({
+        name: newCategoryName.trim(),
+        description: '',
+      });
+      // 重新加载分类列表
+      const cats = await mindMapCategoryApi.getMyCategories();
+      setCategories(cats);
+      setCurrentCategoryId(categoryId);
+      setNewCategoryName('');
+      setShowCategoryManager(false);
+    } catch (error) {
+      console.error('Failed to create category:', error);
+      alert('创建分类失败');
+    }
+  };
+
+  // 删除分类
+  const handleDeleteCategory = async (categoryId: number) => {
+    if (categories.length <= 1) {
+      alert('至少需要保留一个分类');
+      return;
+    }
+    
+    if (!window.confirm('确定要删除此分类吗？删除后，该分类下的思维导图数据将保留，但分类关联会被移除。')) {
+      return;
+    }
+    
+    try {
+      // 删除分类（外键会自动将思维导图的categoryId设为NULL）
+      await mindMapCategoryApi.deleteCategory(categoryId);
+      
+      // 重新加载分类列表
+      const cats = await mindMapCategoryApi.getMyCategories();
+      setCategories(cats);
+      // 如果删除的是当前分类，切换到第一个分类
+      if (categoryId === currentCategoryId && cats.length > 0) {
+        setCurrentCategoryId(cats[0].id);
+      }
+    } catch (error) {
+      console.error('Failed to delete category:', error);
+      alert('删除分类失败');
     }
   };
   
@@ -195,7 +302,7 @@ export const MindMap: React.FC<MindMapProps> = ({
       id: `node-${Date.now()}`,
       label: "新节点",
       type: "leaf",
-      desc: "点击编辑描述",
+      desc: "",
       children: []
     };
     
@@ -369,6 +476,105 @@ export const MindMap: React.FC<MindMapProps> = ({
             )}
           </div>
         </div>
+
+        {/* iOS风格分类导航栏 */}
+        <div className="flex items-center gap-3 px-1">
+          <div className="flex-1 overflow-x-auto no-scrollbar">
+            <div className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800/50 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm min-w-max backdrop-blur-sm">
+              {categories.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setCurrentCategoryId(cat.id)}
+                  className={`
+                    relative px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 whitespace-nowrap
+                    ${cat.id === currentCategoryId
+                      ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-lg scale-[1.02]'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 active:scale-95'
+                    }
+                  `}
+                >
+                  <span className="relative z-10">{cat.name}</span>
+                  {cat.id === currentCategoryId && (
+                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-10 h-1 bg-indigo-500 dark:bg-indigo-400 rounded-full"></div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button
+            onClick={() => setShowCategoryManager(!showCategoryManager)}
+            className="px-3 py-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl text-sm font-medium hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all duration-200 flex items-center gap-2 border border-indigo-200 dark:border-indigo-800 shrink-0 shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            管理
+          </button>
+        </div>
+
+        {/* 分类管理面板 */}
+        {showCategoryManager && (
+          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-lg">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">分类管理</h3>
+              <button
+                onClick={() => setShowCategoryManager(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              {/* 创建新分类 */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  placeholder="输入新分类名称"
+                  className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-indigo-500 dark:focus:border-indigo-400 outline-none"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleCreateCategory();
+                    }
+                  }}
+                />
+                <button
+                  onClick={handleCreateCategory}
+                  className="px-4 py-2 bg-indigo-600 dark:bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 dark:hover:bg-indigo-600 transition-colors"
+                >
+                  创建
+                </button>
+              </div>
+              {/* 分类列表 */}
+              <div className="space-y-2">
+                {categories.map((cat) => (
+                  <div
+                    key={cat.id}
+                    className="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-900 rounded-lg"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FolderOpen className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        {cat.name}
+                        {cat.id === currentCategoryId && (
+                          <span className="ml-2 text-xs text-indigo-600 dark:text-indigo-400">(当前)</span>
+                        )}
+                      </span>
+                    </div>
+                    {categories.length > 1 && (
+                      <button
+                        onClick={() => handleDeleteCategory(cat.id)}
+                        className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-colors"
+                        title="删除分类"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* iOS风格的模式切换器 */}
         <div className="flex items-center gap-3 px-1">

@@ -43,7 +43,7 @@ export interface FrameworkConfig {
   }[];
 }
 
-export type ViewState = 'DASHBOARD' | 'NEW_ENTRY' | 'ENTRY_DETAIL' | 'KNOWLEDGE_POINTS' | 'KNOWLEDGE_POINT_DETAIL' | 'KNOWLEDGE_POINT_EDIT' | 'MINDMAP' | 'GOALS' | 'MONTHLY_REPORT';
+export type ViewState = 'DASHBOARD' | 'NEW_ENTRY' | 'ENTRY_DETAIL' | 'KNOWLEDGE_POINTS' | 'KNOWLEDGE_POINT_DETAIL' | 'KNOWLEDGE_POINT_EDIT' | 'MINDMAP' | 'GOALS' | 'MONTHLY_REPORT' | 'THINKING_CONTENT' | 'THINKING_CONTENT_DETAIL' | 'THINKING_CONTENT_EDIT';
 
 export enum AIModel {
   OPENROUTER_OLMO = 'OPENROUTER_OLMO',
@@ -67,4 +67,15 @@ export interface KnowledgePoint {
   viewCount?: number;
   createTime?: string;
   updateTime?: string;
+}
+
+export interface ThinkingContent {
+  id: string;
+  title: string;
+  content: string;
+  category?: string; // 例如：'AE技巧', 'UE学习', '创意灵感', '技术笔记'等
+  tags?: string[];
+  isStarred?: boolean;
+  createTime: string;
+  updateTime: string;
 }
