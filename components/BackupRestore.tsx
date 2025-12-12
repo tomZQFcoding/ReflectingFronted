@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Download, Upload, CheckCircle2, AlertCircle, FileText } from 'lucide-react';
 import { ReviewEntry } from '../types';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface BackupRestoreProps {
   entries: ReviewEntry[];
@@ -10,6 +11,19 @@ interface BackupRestoreProps {
 export const BackupRestore: React.FC<BackupRestoreProps> = ({ entries, onRestore }) => {
   const [restoreStatus, setRestoreStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [restoreMessage, setRestoreMessage] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type?: 'danger' | 'warning' | 'info';
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'warning',
+    onConfirm: () => {},
+  });
 
   const handleBackup = () => {
     try {
@@ -62,15 +76,22 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({ entries, onRestore
         }
 
         // 确认恢复
-        if (window.confirm(`确定要恢复 ${backupData.count || backupData.entries.length} 条记录吗？这将覆盖当前数据。`)) {
-          onRestore(backupData.entries);
-          setRestoreStatus('success');
-          setRestoreMessage(`成功恢复 ${backupData.entries.length} 条记录`);
-          setTimeout(() => {
-            setRestoreStatus('idle');
-            setRestoreMessage('');
-          }, 3000);
-        }
+        setConfirmDialog({
+          isOpen: true,
+          title: '恢复数据',
+          message: `确定要恢复 ${backupData.count || backupData.entries.length} 条记录吗？这将覆盖当前数据。`,
+          type: 'warning',
+          onConfirm: () => {
+            onRestore(backupData.entries);
+            setRestoreStatus('success');
+            setRestoreMessage(`成功恢复 ${backupData.entries.length} 条记录`);
+            setTimeout(() => {
+              setRestoreStatus('idle');
+              setRestoreMessage('');
+            }, 3000);
+            setConfirmDialog({ ...confirmDialog, isOpen: false });
+          },
+        });
       } catch (error) {
         setRestoreStatus('error');
         setRestoreMessage('恢复失败：文件格式错误');
@@ -146,6 +167,16 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({ entries, onRestore
           <p>• 建议定期备份重要数据</p>
         </div>
       </div>
+
+      {/* 确认对话框 */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+      />
     </div>
   );
 };

@@ -18,6 +18,7 @@ export interface MindMapVO {
 export interface MindMapUpdateRequest {
   title?: string;
   data: string; // JSON字符串
+  categoryId?: number;
 }
 
 /**
@@ -27,8 +28,8 @@ export const mindMapApi = {
   /**
    * 获取当前用户的思维导图
    */
-  async getMyMindMap(): Promise<MindMapNodeData> {
-    const vo = await get<MindMapVO>('/mindMap/get');
+  async getMyMindMap(categoryId?: number): Promise<MindMapNodeData> {
+    const vo = await get<MindMapVO>('/mindMap/get', categoryId ? { categoryId } : undefined);
     try {
       const data = JSON.parse(vo.data);
       return data as MindMapNodeData;
@@ -48,10 +49,11 @@ export const mindMapApi = {
   /**
    * 更新当前用户的思维导图
    */
-  async updateMyMindMap(data: MindMapNodeData, title?: string): Promise<boolean> {
+  async updateMyMindMap(data: MindMapNodeData, title?: string, categoryId?: number): Promise<boolean> {
     const request: MindMapUpdateRequest = {
       title: title || "思维导图",
-      data: JSON.stringify(data)
+      data: JSON.stringify(data),
+      categoryId
     };
     return await post<boolean>('/mindMap/update', request);
   },

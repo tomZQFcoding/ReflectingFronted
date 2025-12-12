@@ -35,7 +35,19 @@ export const GoalTracker: React.FC<GoalTrackerProps> = ({
 
   // 如果选中了目标，显示详情页
   if (selectedGoal) {
-    return <GoalDetail goal={selectedGoal} onBack={() => setSelectedGoal(null)} />;
+    return (
+      <GoalDetail
+        goal={selectedGoal}
+        onBack={() => setSelectedGoal(null)}
+        onUpdateGoal={async (id, updates) => {
+          await onUpdateGoal(id, updates);
+          // 本地同步选中项的进度/状态，提升即时反馈
+          setSelectedGoal((prev) =>
+            prev ? { ...prev, ...updates } as Goal : null
+          );
+        }}
+      />
+    );
   }
 
   const handleSubmit = () => {

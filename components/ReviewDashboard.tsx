@@ -28,6 +28,8 @@ import { AdvancedSearch, SearchFilters } from './AdvancedSearch';
 import { ThemeToggle } from './ThemeToggle';
 import { exportToMarkdown, exportToImage, downloadFile } from '../utils/exportUtils';
 import { generateWeeklyReport } from '../services/aiService';
+import { weeklyReportApi } from '../services/weeklyReportApi';
+import { AlertDialog } from './AlertDialog';
 
 interface ReviewDashboardProps {
   entries: ReviewEntry[];
@@ -61,6 +63,7 @@ interface ReviewDashboardProps {
   randomMemory: ReviewEntry | null;
   weeklyReport: WeeklyAnalysisResult | null;
   isGeneratingReport: boolean;
+  triggerToast?: (msg: string, type?: 'success' | 'error') => void;
 }
 
 export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
@@ -95,8 +98,62 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
   randomMemory,
   weeklyReport,
   isGeneratingReport,
+  triggerToast,
 }) => {
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
+  const [isSavingReport, setIsSavingReport] = useState(false);
+  const [alertDialog, setAlertDialog] = useState<{isOpen: boolean, title: string, message: string, type?: 'success' | 'error' | 'warning' | 'info'}>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info',
+  });
+  const availableTags = useMemo(() => {
+    const set = new Set<string>();
+    entries.forEach(e => e.tags?.forEach(t => set.add(t)));
+    return Array.from(set);
+  }, [entries]);
+
+  // 保存周报
+  const handleSaveWeeklyReport = async () => {
+    if (!weeklyReport) return;
+    
+    setIsSavingReport(true);
+    try {
+      // 计算开始和结束日期（最近7天）
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+
+      await weeklyReportApi.saveWeeklyReport(weeklyReport, startDate, endDate);
+      if (triggerToast) {
+        triggerToast('周报已保存成功！');
+      } else {
+        setAlertDialog({
+          isOpen: true,
+          title: '保存成功',
+          message: '周报已保存成功！',
+          type: 'success',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to save weekly report:', error);
+      if (triggerToast) {
+        triggerToast('保存周报失败，请重试', 'error');
+      } else {
+        setAlertDialog({
+          isOpen: true,
+          title: '保存失败',
+          message: '保存周报失败，请重试',
+          type: 'error',
+        });
+      }
+    } finally {
+      setIsSavingReport(false);
+    }
+  };
 
   // 过滤复盘记录
   const filteredEntries = useMemo(() => {
@@ -110,9 +167,15 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
     // 搜索查询
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
+    // 将复盘内容对象拼成单个字符串用于搜索
+    const matchesContent = (contentObj: ReviewEntry['content']) => {
+      if (!contentObj) return false;
+      const combined = Object.values(contentObj).join(' ').toLowerCase();
+      return combined.includes(query);
+    };
       filtered = filtered.filter(e => 
-        e.content?.toLowerCase().includes(query) ||
-        e.tags?.some(tag => tag.toLowerCase().includes(query)) ||
+      matchesContent(e.content) ||
+      e.tags?.some(tag => tag.toLowerCase().includes(query)) ||
         FRAMEWORKS[e.framework].label.toLowerCase().includes(query)
       );
     }
@@ -237,6 +300,26 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                              <Quote size={48} className="absolute -top-2 -right-2 text-white/5 rotate-12" />
                              <h4 className="font-bold text-indigo-200 text-xs uppercase mb-2">教练建议</h4>
                              <p className="font-medium leading-relaxed font-serif text-lg">"{weeklyReport.suggestion}"</p>
+                        </div>
+
+                        <div className="mt-6 flex justify-end gap-3">
+                            <button
+                                onClick={handleSaveWeeklyReport}
+                                disabled={isSavingReport}
+                                className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl shadow-sm transition-all active:scale-95"
+                            >
+                                {isSavingReport ? (
+                                    <>
+                                        <div className="animate-spin"><Sparkles size={16} /></div>
+                                        <span>保存中...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Download size={16} />
+                                        <span>保存周报</span>
+                                    </>
+                                )}
+                            </button>
                         </div>
                     </div>
                 ) : null}
@@ -462,12 +545,24 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
       {/* Advanced Search Modal */}
       {showAdvancedSearch && (
         <AdvancedSearch
-          filters={searchFilters}
-          onFiltersChange={setSearchFilters}
+          isOpen={showAdvancedSearch}
+          availableTags={availableTags}
           onClose={() => setShowAdvancedSearch(false)}
-          entries={entries}
+          onSearch={(filters) => {
+            setSearchFilters(filters);
+            setSearchQuery(filters.query || '');
+          }}
         />
       )}
+
+      {/* 提示弹窗 */}
+      <AlertDialog
+        isOpen={alertDialog.isOpen}
+        title={alertDialog.title}
+        message={alertDialog.message}
+        type={alertDialog.type}
+        onClose={() => setAlertDialog({ ...alertDialog, isOpen: false })}
+      />
     </div>
   );
 };

@@ -116,16 +116,18 @@ export const ComprehensiveStats: React.FC<ComprehensiveStatsProps> = ({
       color: string;
     }> = [];
 
-    // 最近的复盘
-    entries.slice(-5).forEach(entry => {
-      activities.push({
-        type: 'review',
-        title: `复盘记录：${entry.framework}`,
-        date: new Date(entry.date),
-        icon: <Sparkles size={14} />,
-        color: 'indigo'
+    // 最近的复盘 - 取最新的5个（数组开头是最新的）
+    entries
+      .slice(0, 5)
+      .forEach(entry => {
+        activities.push({
+          type: 'review',
+          title: `复盘记录：${entry.framework}`,
+          date: new Date(entry.date),
+          icon: <Sparkles size={14} />,
+          color: 'indigo'
+        });
       });
-    });
 
     // 最近完成的目标
     goals.filter(g => g.status === 'completed')

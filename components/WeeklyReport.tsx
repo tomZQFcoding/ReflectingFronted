@@ -1,8 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Calendar, TrendingUp, BarChart3, Sparkles, Clock, ChevronLeft } from 'lucide-react';
 import { ReviewEntry, WeeklyAnalysisResult, AIModel } from '../types';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { generateWeeklyReport, checkModelApiKey } from '../services/aiService';
+import { weeklyReportApi } from '../services/weeklyReportApi';
+import { AlertDialog } from './AlertDialog';
 
 interface WeeklyReportProps {
   entries: ReviewEntry[];
@@ -10,9 +12,17 @@ interface WeeklyReportProps {
 }
 
 export const WeeklyReport: React.FC<WeeklyReportProps> = ({ entries, selectedModel }) => {
+  // 强制使用智谱AI生成周报
+  const weeklyReportModel = AIModel.ZHIPU_GLM45;
   const [selectedWeek, setSelectedWeek] = useState(new Date());
   const [weeklyReport, setWeeklyReport] = useState<WeeklyAnalysisResult | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [alertDialog, setAlertDialog] = useState<{isOpen: boolean, title: string, message: string, type?: 'success' | 'error' | 'warning' | 'info'}>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info',
+  });
 
   // 计算当前周的开始和结束日期
   const getWeekRange = (date: Date) => {
@@ -31,6 +41,54 @@ export const WeeklyReport: React.FC<WeeklyReportProps> = ({ entries, selectedMod
 
   const { start: weekStart, end: weekEnd } = getWeekRange(selectedWeek);
 
+  // 加载已保存的周报（当前周或最近一条）
+  useEffect(() => {
+    const loadSavedReport = async () => {
+      try {
+        const list = await weeklyReportApi.listMyWeeklyReports();
+        if (!list || list.length === 0) {
+          setWeeklyReport(null);
+          return;
+        }
+
+        const startKey = weekStart.toISOString().slice(0, 10);
+        const endKey = weekEnd.toISOString().slice(0, 10);
+
+        const match = list.find(
+          (r) =>
+            r.startDate.slice(0, 10) === startKey &&
+            r.endDate.slice(0, 10) === endKey
+        );
+
+        const target = match || list[0]; // 当前周匹配不到则显示最近一条
+        if (!target) {
+          setWeeklyReport(null);
+          return;
+        }
+
+        let keywords: string[] = [];
+        try {
+          keywords = JSON.parse(target.keywords || '[]');
+        } catch (e) {
+          console.error('Failed to parse weekly report keywords', e);
+        }
+
+        setWeeklyReport({
+          dateRange: target.dateRange,
+          keywords,
+          emotionalTrend: target.emotionalTrend,
+          growthFocus: target.growthFocus,
+          suggestion: target.suggestion,
+        });
+      } catch (error) {
+        console.error('Failed to load saved weekly reports:', error);
+      }
+    };
+
+    loadSavedReport();
+  // 仅在选中周变化时加载，避免因 weekStart/weekEnd 引用变动导致重复请求
+  }, [selectedWeek]);
+
   // 获取本周的复盘记录
   const weekEntries = useMemo(() => {
     return entries.filter(entry => {
@@ -39,25 +97,42 @@ export const WeeklyReport: React.FC<WeeklyReportProps> = ({ entries, selectedMod
     });
   }, [entries, weekStart, weekEnd]);
 
-  // 生成周报
+  // 生成周报 - 使用智谱AI
   const handleGenerateReport = async () => {
-    if (!checkModelApiKey(selectedModel)) {
-      alert('请先配置AI模型的API Key');
+    if (!checkModelApiKey(weeklyReportModel)) {
+      setAlertDialog({
+        isOpen: true,
+        title: '配置缺失',
+        message: '请先配置智谱AI的API Key',
+        type: 'warning',
+      });
       return;
     }
 
     if (weekEntries.length < 3) {
-      alert('本周复盘记录不足3条，无法生成周报');
+      setAlertDialog({
+        isOpen: true,
+        title: '记录不足',
+        message: '本周复盘记录不足3条，无法生成周报',
+        type: 'warning',
+      });
       return;
     }
 
     setIsGenerating(true);
     try {
-      const result = await generateWeeklyReport(selectedModel, weekEntries);
+      const result = await generateWeeklyReport(weeklyReportModel, weekEntries);
       setWeeklyReport(result);
+      // 自动保存，覆盖同一时间范围内的周报
+      await weeklyReportApi.saveWeeklyReport(result, weekStart, weekEnd);
     } catch (error) {
       console.error('Failed to generate weekly report:', error);
-      alert('生成周报失败，请重试');
+      setAlertDialog({
+        isOpen: true,
+        title: '生成失败',
+        message: '生成周报失败，请重试',
+        type: 'error',
+      });
     } finally {
       setIsGenerating(false);
     }
@@ -117,10 +192,44 @@ export const WeeklyReport: React.FC<WeeklyReportProps> = ({ entries, selectedMod
     setWeeklyReport(null); // 切换周时清除报告
   };
 
+  // 保存周报
+  const handleSaveReport = async () => {
+    if (!weeklyReport) return;
+    
+    setIsSaving(true);
+    try {
+      await weeklyReportApi.saveWeeklyReport(weeklyReport, weekStart, weekEnd);
+      setAlertDialog({
+        isOpen: true,
+        title: '保存成功',
+        message: '周报已保存成功！',
+        type: 'success',
+      });
+    } catch (error) {
+      console.error('Failed to save weekly report:', error);
+      setAlertDialog({
+        isOpen: true,
+        title: '保存失败',
+        message: '保存周报失败，请重试',
+        type: 'error',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const weekRangeStr = `${weekStart.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}`;
 
   return (
     <div className="space-y-6">
+      {/* 提示弹窗 */}
+      <AlertDialog
+        isOpen={alertDialog.isOpen}
+        title={alertDialog.title}
+        message={alertDialog.message}
+        type={alertDialog.type}
+        onClose={() => setAlertDialog({ ...alertDialog, isOpen: false })}
+      />
       {/* 周选择器和生成按钮 */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
@@ -266,6 +375,7 @@ export const WeeklyReport: React.FC<WeeklyReportProps> = ({ entries, selectedMod
               <h4 className="font-semibold text-indigo-200 text-xs uppercase mb-2">教练建议</h4>
               <p className="font-medium leading-relaxed text-base">"{weeklyReport.suggestion}"</p>
             </div>
+
           </div>
         </div>
       ) : weekEntries.length >= 3 && (

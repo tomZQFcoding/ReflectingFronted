@@ -3,6 +3,8 @@ import { Layout, Edit3, X, CornerDownRight, Trash2, User, Target, Layers, BookOp
 import { MindMapNode, MindMapNodeData, NodeStatus } from './MindMapNode';
 import { mindMapApi } from '../services/mindMapApi';
 import { mindMapCategoryApi, MindMapCategoryVO } from '../services/mindMapCategoryApi';
+import { AlertDialog } from './AlertDialog';
+import { ConfirmDialog } from './ConfirmDialog';
 
 // 模式类型
 type MindMapMode = 'view' | 'edit' | 'presentation';
@@ -103,6 +105,25 @@ export const MindMap: React.FC<MindMapProps> = ({
   const [categories, setCategories] = useState<MindMapCategoryVO[]>([]);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [alertDialog, setAlertDialog] = useState<{isOpen: boolean, title: string, message: string, type?: 'success' | 'error' | 'warning' | 'info'}>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info',
+  });
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type?: 'danger' | 'warning' | 'info';
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'warning',
+    onConfirm: () => {},
+  });
   
   // 使用 useMemo 确保数据清理只在必要时执行
   const mapData = useMemo(() => cleanMapData(mapDataRaw) || initialMapData, [mapDataRaw]);
@@ -187,11 +208,21 @@ export const MindMap: React.FC<MindMapProps> = ({
   // 创建新分类
   const handleCreateCategory = async () => {
     if (!newCategoryName.trim()) {
-      alert('请输入分类名称');
+      setAlertDialog({
+        isOpen: true,
+        title: '输入错误',
+        message: '请输入分类名称',
+        type: 'warning',
+      });
       return;
     }
     if (categories.find(c => c.name === newCategoryName.trim())) {
-      alert('该分类已存在');
+      setAlertDialog({
+        isOpen: true,
+        title: '分类已存在',
+        message: '该分类已存在',
+        type: 'warning',
+      });
       return;
     }
     try {
@@ -207,36 +238,57 @@ export const MindMap: React.FC<MindMapProps> = ({
       setShowCategoryManager(false);
     } catch (error) {
       console.error('Failed to create category:', error);
-      alert('创建分类失败');
+      setAlertDialog({
+        isOpen: true,
+        title: '创建失败',
+        message: '创建分类失败',
+        type: 'error',
+      });
     }
   };
 
   // 删除分类
   const handleDeleteCategory = async (categoryId: number) => {
     if (categories.length <= 1) {
-      alert('至少需要保留一个分类');
+      setAlertDialog({
+        isOpen: true,
+        title: '无法删除',
+        message: '至少需要保留一个分类',
+        type: 'warning',
+      });
       return;
     }
     
-    if (!window.confirm('确定要删除此分类吗？删除后，该分类下的思维导图数据将保留，但分类关联会被移除。')) {
-      return;
-    }
-    
-    try {
-      // 删除分类（外键会自动将思维导图的categoryId设为NULL）
-      await mindMapCategoryApi.deleteCategory(categoryId);
-      
-      // 重新加载分类列表
-      const cats = await mindMapCategoryApi.getMyCategories();
-      setCategories(cats);
-      // 如果删除的是当前分类，切换到第一个分类
-      if (categoryId === currentCategoryId && cats.length > 0) {
-        setCurrentCategoryId(cats[0].id);
-      }
-    } catch (error) {
-      console.error('Failed to delete category:', error);
-      alert('删除分类失败');
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: '删除分类',
+      message: '确定要删除此分类吗？删除后，该分类下的思维导图数据将保留，但分类关联会被移除。',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          // 删除分类（外键会自动将思维导图的categoryId设为NULL）
+          await mindMapCategoryApi.deleteCategory(categoryId);
+          
+          // 重新加载分类列表
+          const cats = await mindMapCategoryApi.getMyCategories();
+          setCategories(cats);
+          // 如果删除的是当前分类，切换到第一个分类
+          if (categoryId === currentCategoryId && cats.length > 0) {
+            setCurrentCategoryId(cats[0].id);
+          }
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        } catch (error) {
+          console.error('Failed to delete category:', error);
+          setAlertDialog({
+            isOpen: true,
+            title: '删除失败',
+            message: '删除分类失败',
+            type: 'error',
+          });
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        }
+      },
+    });
   };
   
   const setMapData = (newData: MindMapNodeData) => {
@@ -321,21 +373,29 @@ export const MindMap: React.FC<MindMapProps> = ({
 
   const handleDeleteNode = () => {
     if (!selectedNode || selectedNode.type === 'root') return;
-    if (!window.confirm("确定要删除此节点及其所有子节点吗？")) return;
     
-    const deleteFromTree = (node: MindMapNodeData, targetId: string): MindMapNodeData => {
-      if (!node.children) return node;
-      return {
-        ...node,
-        children: node.children
-          .filter(child => child.id !== targetId)
-          .map(child => deleteFromTree(child, targetId))
-      };
-    };
-    
-    const newMap = deleteFromTree(mapData, selectedNode.id);
-    setMapData(newMap);
-    setSelectedNode(null);
+    setConfirmDialog({
+      isOpen: true,
+      title: '删除节点',
+      message: '确定要删除此节点及其所有子节点吗？此操作无法撤销。',
+      type: 'danger',
+      onConfirm: () => {
+        const deleteFromTree = (node: MindMapNodeData, targetId: string): MindMapNodeData => {
+          if (!node.children) return node;
+          return {
+            ...node,
+            children: node.children
+              .filter(child => child.id !== targetId)
+              .map(child => deleteFromTree(child, targetId))
+          };
+        };
+        
+        const newMap = deleteFromTree(mapData, selectedNode.id);
+        setMapData(newMap);
+        setSelectedNode(null);
+        setConfirmDialog({ ...confirmDialog, isOpen: false });
+      },
+    });
   };
 
   const handleUpdateNode = () => {
@@ -805,6 +865,25 @@ export const MindMap: React.FC<MindMapProps> = ({
           animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
       `}</style>
+
+      {/* 提示弹窗 */}
+      <AlertDialog
+        isOpen={alertDialog.isOpen}
+        title={alertDialog.title}
+        message={alertDialog.message}
+        type={alertDialog.type}
+        onClose={() => setAlertDialog({ ...alertDialog, isOpen: false })}
+      />
+
+      {/* 确认对话框 */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+      />
     </div>
   );
 };

@@ -59,6 +59,7 @@ import { MindMap } from './components/MindMap';
 import { ComprehensiveStats } from './components/ComprehensiveStats';
 import { ReviewDashboard } from './components/ReviewDashboard';
 import { Statistics } from './components/Statistics';
+import { ConfirmDialog } from './components/ConfirmDialog';
 
 // Declare standard speech recognition for TS
 declare global {
@@ -121,6 +122,19 @@ const App = () => {
   const [weeklyReport, setWeeklyReport] = useState<WeeklyAnalysisResult | null>(null);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [searchFilters, setSearchFilters] = useState<SearchFilters | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type?: 'danger' | 'warning' | 'info';
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'warning',
+    onConfirm: () => {},
+  });
   
   // Goals
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -588,11 +602,16 @@ const App = () => {
         // 调用后端API保存
         const savedId = await reviewEntryApi.addEntry(newEntry);
         
-        // 更新ID为后端返回的真实ID
-        newEntry.id = savedId.toString();
-        
-        // 更新本地状态
-        setEntries(prev => [newEntry, ...prev]);
+        // 重新从后端加载数据，确保数据格式一致并包含最新数据
+        try {
+          const loadedEntries = await reviewEntryApi.listMyEntries();
+          setEntries(loadedEntries);
+        } catch (error) {
+          console.error("Failed to reload entries:", error);
+          // 如果重新加载失败，使用本地更新作为后备方案
+          newEntry.id = savedId.toString();
+          setEntries(prev => [newEntry, ...prev]);
+        }
         triggerToast("复盘已保存");
         setView('REVIEW');
       }
@@ -656,11 +675,16 @@ const App = () => {
         // 调用后端API保存
         const savedId = await reviewEntryApi.addEntry(newEntry);
         
-        // 更新ID为后端返回的真实ID
-        newEntry.id = savedId.toString();
-        
-        // 更新本地状态
-        setEntries(prev => [newEntry, ...prev]);
+        // 重新从后端加载数据，确保数据格式一致并包含最新数据
+        try {
+          const loadedEntries = await reviewEntryApi.listMyEntries();
+          setEntries(loadedEntries);
+        } catch (error) {
+          console.error("Failed to reload entries:", error);
+          // 如果重新加载失败，使用本地更新作为后备方案
+          newEntry.id = savedId.toString();
+          setEntries(prev => [newEntry, ...prev]);
+        }
         triggerToast("复盘已保存");
         setView('REVIEW');
       }
@@ -683,17 +707,25 @@ const App = () => {
   };
 
   const handleDeleteEntry = async (id: string) => {
-    if (window.confirm("确定删除？")) {
-      try {
-        await reviewEntryApi.deleteEntry(id);
-      setEntries(prev => prev.filter(e => e.id !== id));
-      if (view === 'ENTRY_DETAIL') setView('REVIEW');
-      triggerToast("已删除");
-      } catch (error) {
-        console.error(error);
-        triggerToast(error instanceof Error ? error.message : "删除失败", "error");
-      }
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: '删除复盘',
+      message: '确定要删除这条复盘记录吗？此操作无法撤销。',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          await reviewEntryApi.deleteEntry(id);
+          setEntries(prev => prev.filter(e => e.id !== id));
+          if (view === 'ENTRY_DETAIL') setView('REVIEW');
+          triggerToast("已删除");
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        } catch (error) {
+          console.error(error);
+          triggerToast(error instanceof Error ? error.message : "删除失败", "error");
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        }
+      },
+    });
   };
 
   const handleCopyMarkdown = (entry: ReviewEntry) => {
@@ -775,16 +807,24 @@ const App = () => {
   };
 
   const handleDeleteGoal = async (id: string) => {
-      if (window.confirm("确定删除这个目标？")) {
+      setConfirmDialog({
+        isOpen: true,
+        title: '删除目标',
+        message: '确定要删除这个目标吗？此操作无法撤销。',
+        type: 'danger',
+        onConfirm: async () => {
           try {
-              await goalApi.deleteGoal(parseInt(id));
-              await reloadGoals();
-          triggerToast("目标已删除");
+            await goalApi.deleteGoal(parseInt(id));
+            await reloadGoals();
+            triggerToast("目标已删除");
+            setConfirmDialog({ ...confirmDialog, isOpen: false });
           } catch (error) {
-              console.error('Failed to delete goal:', error);
-              triggerToast("删除目标失败", "error");
+            console.error('Failed to delete goal:', error);
+            triggerToast("删除目标失败", "error");
+            setConfirmDialog({ ...confirmDialog, isOpen: false });
           }
-      }
+        },
+      });
   };
 
   const handleImportData = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -795,11 +835,18 @@ const App = () => {
           try {
               const imported = JSON.parse(e.target?.result as string);
               if (Array.isArray(imported)) {
-                  if(window.confirm(`确认导入 ${imported.length} 条数据？现有数据将被覆盖。`)) {
+                  setConfirmDialog({
+                    isOpen: true,
+                    title: '导入数据',
+                    message: `确认导入 ${imported.length} 条数据？现有数据将被覆盖。`,
+                    type: 'warning',
+                    onConfirm: () => {
                       setEntries(imported);
                       triggerToast("数据导入成功");
                       setShowSettings(false);
-                  }
+                      setConfirmDialog({ ...confirmDialog, isOpen: false });
+                    },
+                  });
               }
           } catch (err) {
               triggerToast("文件格式错误", "error");
@@ -814,11 +861,13 @@ const App = () => {
           return;
       }
       
-      // 检查选定的模型是否有API Key
+      // 强制使用智谱AI生成周报
+      const weeklyReportModel = AIModel.ZHIPU_GLM45;
+      
+      // 检查智谱AI的API Key
       const { checkModelApiKey } = await import('./services/aiService');
-      if (!checkModelApiKey(selectedModel)) {
-        const modelName = selectedModel === AIModel.OPENROUTER_OLMO ? 'OpenRouter' : '智谱AI';
-        triggerToast(`${modelName} API Key 缺失，无法生成周报`, "error");
+      if (!checkModelApiKey(weeklyReportModel)) {
+        triggerToast("智谱AI API Key 缺失，无法生成周报", "error");
         return;
       }
       
@@ -826,7 +875,7 @@ const App = () => {
       setShowWeeklyReport(true);
       try {
           const recentEntries = entries.slice(0, 10);
-          const result = await generateWeeklyReport(selectedModel, recentEntries);
+          const result = await generateWeeklyReport(weeklyReportModel, recentEntries);
           setWeeklyReport(result);
       } catch (e) {
           triggerToast("生成失败，请重试", "error");
@@ -1005,6 +1054,7 @@ const App = () => {
         randomMemory={randomMemory}
         weeklyReport={weeklyReport}
         isGeneratingReport={isGeneratingReport}
+        triggerToast={triggerToast}
       />
     );
   };
@@ -1873,6 +1923,16 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-slate-50/50 font-sans text-slate-900 selection:bg-indigo-100 selection:text-indigo-900">
+      {/* 确认对话框 */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+      />
+
       {/* Auth Modal */}
       <AuthModal 
         isOpen={showAuthModal}

@@ -162,7 +162,7 @@ export const exportToPDF = async (entries: ReviewEntry[]): Promise<void> => {
   // npm install jspdf html2canvas
   // 这里提供一个占位实现
   console.warn('PDF导出功能需要安装 jsPDF 和 html2canvas 库');
-  alert('PDF导出功能需要安装额外的库。当前使用Markdown导出。');
+  // 静默降级到 Markdown 导出，不显示弹窗
   const markdown = exportToMarkdown(entries);
   downloadFile(markdown, `复盘记录_${new Date().toISOString().split('T')[0]}.md`, 'text/markdown');
 };

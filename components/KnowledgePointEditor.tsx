@@ -3,6 +3,7 @@ import { ChevronLeft, Save, X, Tag } from 'lucide-react';
 import { KnowledgePoint } from '../types';
 import { Button } from './Button';
 import { TagAutocomplete } from './TagAutocomplete';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface KnowledgePointEditorProps {
   knowledgePoint?: KnowledgePoint;
@@ -25,6 +26,19 @@ export const KnowledgePointEditor: React.FC<KnowledgePointEditorProps> = ({
   const [tags, setTags] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type?: 'danger' | 'warning' | 'info';
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'warning',
+    onConfirm: () => {},
+  });
 
   useEffect(() => {
     if (knowledgePoint) {
@@ -59,14 +73,21 @@ export const KnowledgePointEditor: React.FC<KnowledgePointEditorProps> = ({
 
   const handleDelete = async () => {
     if (!knowledgePoint || !onDelete) return;
-    if (window.confirm('确定删除这个知识点吗？')) {
-      setIsDeleting(true);
-      try {
-        await onDelete(knowledgePoint.id);
-      } finally {
-        setIsDeleting(false);
-      }
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: '删除知识点',
+      message: '确定要删除这个知识点吗？此操作无法撤销。',
+      type: 'danger',
+      onConfirm: async () => {
+        setIsDeleting(true);
+        try {
+          await onDelete(knowledgePoint.id);
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        } finally {
+          setIsDeleting(false);
+        }
+      },
+    });
   };
 
   const isFormValid = title.trim().length > 0 && content.trim().length > 0;
@@ -171,6 +192,16 @@ export const KnowledgePointEditor: React.FC<KnowledgePointEditorProps> = ({
           </div>
         </div>
       </div>
+
+      {/* 确认对话框 */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+      />
     </div>
   );
 };

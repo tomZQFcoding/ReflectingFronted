@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Trash2, Download, X, CheckSquare, Square } from 'lucide-react';
 import { Button } from './Button';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface BatchActionsProps<T extends { id: string }> {
   items: T[];
@@ -23,11 +24,31 @@ export function BatchActions<T extends { id: string }>({
 }: BatchActionsProps<T>) {
   const selectedCount = selectedIds.size;
   const allSelected = selectedCount === items.length && items.length > 0;
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type?: 'danger' | 'warning' | 'info';
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'warning',
+    onConfirm: () => {},
+  });
 
   const handleDelete = () => {
-    if (window.confirm(`确定删除选中的 ${selectedCount} 项吗？`)) {
-      onDelete(Array.from(selectedIds));
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: '批量删除',
+      message: `确定要删除选中的 ${selectedCount} 项吗？此操作无法撤销。`,
+      type: 'danger',
+      onConfirm: () => {
+        onDelete(Array.from(selectedIds));
+        setConfirmDialog({ ...confirmDialog, isOpen: false });
+      },
+    });
   };
 
   const handleExport = () => {
@@ -92,6 +113,16 @@ export function BatchActions<T extends { id: string }>({
           </button>
         </div>
       </div>
+
+      {/* 确认对话框 */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+      />
     </div>
   );
 }
