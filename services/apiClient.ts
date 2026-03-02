@@ -56,7 +56,14 @@ async function handleResponse<T>(response: Response): Promise<T> {
 export async function get<T>(url: string, params?: Record<string, any>): Promise<T> {
   let fullUrl = `${API_BASE_URL}${url}`;
   if (params) {
-    const queryString = new URLSearchParams(params).toString();
+    // 过滤掉为 undefined / null / 空字符串的参数，避免传递无效的查询条件（例如 userName=undefined）
+    const filteredParams: Record<string, string> = {};
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        filteredParams[key] = String(value);
+      }
+    });
+    const queryString = new URLSearchParams(filteredParams).toString();
     fullUrl += `?${queryString}`;
   }
   const response = await fetch(fullUrl, createRequestConfig('GET'));

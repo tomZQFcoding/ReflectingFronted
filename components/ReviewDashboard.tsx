@@ -15,7 +15,8 @@ import {
   Download,
   Upload,
   Bell,
-  BellOff
+  BellOff,
+  LogOut,
 } from 'lucide-react';
 import { ReviewEntry, FrameworkType, WeeklyAnalysisResult } from '../types';
 import { FRAMEWORKS } from '../constants';
@@ -64,6 +65,7 @@ interface ReviewDashboardProps {
   weeklyReport: WeeklyAnalysisResult | null;
   isGeneratingReport: boolean;
   triggerToast?: (msg: string, type?: 'success' | 'error') => void;
+  onLogout?: () => void;
 }
 
 export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
@@ -99,6 +101,7 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
   weeklyReport,
   isGeneratingReport,
   triggerToast,
+  onLogout,
 }) => {
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [isSavingReport, setIsSavingReport] = useState(false);
@@ -250,6 +253,18 @@ export const ReviewDashboard: React.FC<ReviewDashboardProps> = ({
                         <Upload size={18} /> 导入恢复 (JSON)
                         <input type="file" accept=".json" onChange={handleImportData} className="hidden" />
                     </label>
+
+                    {onLogout && (
+                      <div className="pt-4 mt-4 border-t border-slate-100 dark:border-slate-700">
+                        <button
+                          onClick={() => { setShowSettings(false); onLogout(); }}
+                          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors text-sm font-medium"
+                        >
+                          <LogOut size={18} />
+                          退出登录
+                        </button>
+                      </div>
+                    )}
                 </div>
             </div>
         </div>

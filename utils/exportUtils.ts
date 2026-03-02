@@ -1,16 +1,32 @@
 import { ReviewEntry } from '../types';
 import { FRAMEWORKS } from '../constants';
 
+/** 根据管理员设置决定导出时是否包含 AI 分析 */
+function getEntriesForExport(entries: ReviewEntry[]): ReviewEntry[] {
+  const includeAi = localStorage.getItem('admin_export_include_ai') !== 'false';
+  if (includeAi) return entries;
+  return entries.map((e) => ({ ...e, aiAnalysis: undefined }));
+}
+
+/** 根据管理员设置限制导出条数，0 表示不限制 */
+function limitExportCount(entries: ReviewEntry[]): ReviewEntry[] {
+  const max = parseInt(localStorage.getItem('admin_export_max_count') || '0', 10);
+  if (max <= 0) return entries;
+  return entries.slice(0, max);
+}
+
 /**
  * 导出为Markdown格式
  */
 export const exportToMarkdown = (entries: ReviewEntry[]): string => {
+  const limited = limitExportCount(entries);
+  const toExport = getEntriesForExport(limited);
   let markdown = '# 复盘记录导出\n\n';
   markdown += `导出时间：${new Date().toLocaleString('zh-CN')}\n`;
-  markdown += `共 ${entries.length} 条记录\n\n`;
+  markdown += `共 ${toExport.length} 条记录\n\n`;
   markdown += '---\n\n';
 
-  entries.forEach((entry, index) => {
+  toExport.forEach((entry, index) => {
     const config = FRAMEWORKS[entry.framework];
     const date = new Date(entry.date).toLocaleDateString('zh-CN');
     
@@ -52,7 +68,9 @@ export const exportToMarkdown = (entries: ReviewEntry[]): string => {
  * 导出为JSON格式
  */
 export const exportToJSON = (entries: ReviewEntry[]): void => {
-  downloadFile(JSON.stringify(entries, null, 2), `reflect_ai_backup_${new Date().toISOString().slice(0,10)}.json`, 'application/json');
+  const limited = limitExportCount(entries);
+  const toExport = getEntriesForExport(limited);
+  downloadFile(JSON.stringify(toExport, null, 2), `reflect_ai_backup_${new Date().toISOString().slice(0,10)}.json`, 'application/json');
 };
 
 /**

@@ -1,17 +1,19 @@
 import React, { useState, useMemo } from 'react';
-import { ChevronLeft, BarChart3, Target, BookOpen, Sparkles, TrendingUp } from 'lucide-react';
-import { ReviewEntry, AIModel, KnowledgePoint } from '../types';
+import { ChevronLeft, BarChart3, Target, BookOpen, Sparkles, TrendingUp, CheckSquare, Lightbulb } from 'lucide-react';
+import { ReviewEntry, AIModel, KnowledgePoint, Habit, HabitWithStats, Memo } from '../types';
 import { Goal } from '../types/goal';
 import { MonthlyReport } from './MonthlyReport';
 import { WeeklyReport } from './WeeklyReport';
 import { YearlyReport } from './YearlyReport';
 import { GoalStatistics } from './GoalStatistics';
-import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, LineChart, Line } from 'recharts';
 
 interface StatisticsProps {
   entries: ReviewEntry[];
   goals?: Goal[];
   knowledgePoints?: KnowledgePoint[];
+  habits?: HabitWithStats[];
+  memos?: Memo[];
   selectedModel?: AIModel;
   onBack: () => void;
 }
@@ -20,11 +22,13 @@ export const Statistics: React.FC<StatisticsProps> = ({
   entries, 
   goals = [], 
   knowledgePoints = [],
+  habits = [],
+  memos = [],
   selectedModel = AIModel.ZHIPU_GLM45, 
   onBack 
 }) => {
   const [reportMonth, setReportMonth] = useState(new Date());
-  const [activeTab, setActiveTab] = useState<'review' | 'goals' | 'knowledge' | 'overview'>('overview');
+  const [activeTab, setActiveTab] = useState<'review' | 'goals' | 'knowledge' | 'habits' | 'memos' | 'overview'>('overview');
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
@@ -92,6 +96,28 @@ export const Statistics: React.FC<StatisticsProps> = ({
               <BookOpen size={16} />
               知识点统计
             </button>
+            <button
+              onClick={() => setActiveTab('habits')}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
+                activeTab === 'habits'
+                  ? 'bg-cyan-500 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <CheckSquare size={16} />
+              习惯统计
+            </button>
+            <button
+              onClick={() => setActiveTab('memos')}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
+                activeTab === 'memos'
+                  ? 'bg-rose-500 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              <Lightbulb size={16} />
+              闪念统计
+            </button>
           </div>
         </div>
 
@@ -102,6 +128,8 @@ export const Statistics: React.FC<StatisticsProps> = ({
               entries={entries}
               goals={goals}
               knowledgePoints={knowledgePoints}
+              habits={habits}
+              memos={memos}
             />
           )}
 
@@ -132,6 +160,14 @@ export const Statistics: React.FC<StatisticsProps> = ({
           {activeTab === 'knowledge' && (
             <KnowledgeStatistics knowledgePoints={knowledgePoints} />
           )}
+
+          {activeTab === 'habits' && (
+            <HabitStatistics habits={habits} />
+          )}
+
+          {activeTab === 'memos' && (
+            <MemoStatistics memos={memos} />
+          )}
         </div>
       </div>
     </div>
@@ -143,9 +179,11 @@ interface OverviewStatisticsProps {
   entries: ReviewEntry[];
   goals: Goal[];
   knowledgePoints: KnowledgePoint[];
+  habits: HabitWithStats[];
+  memos: Memo[];
 }
 
-const OverviewStatistics: React.FC<OverviewStatisticsProps> = ({ entries, goals, knowledgePoints }) => {
+const OverviewStatistics: React.FC<OverviewStatisticsProps> = ({ entries, goals, knowledgePoints, habits, memos }) => {
   // 复盘统计
   const reviewStats = useMemo(() => {
     const total = entries.length;
@@ -187,6 +225,33 @@ const OverviewStatistics: React.FC<OverviewStatisticsProps> = ({ entries, goals,
     return { total, categoryData };
   }, [knowledgePoints]);
 
+  // 习惯统计
+  const habitStats = useMemo(() => {
+    const total = habits.length;
+    const active = habits.filter(h => h.isActive).length;
+    const totalCheckIns = habits.reduce((acc, h) => acc + (h.totalCheckIns || 0), 0);
+    const avgCompletionRate = total > 0
+      ? Math.round(habits.reduce((acc, h) => acc + (h.completionRate || 0), 0) / total)
+      : 0;
+    const totalStreak = habits.reduce((acc, h) => acc + (h.currentStreak || 0), 0);
+    return { total, active, totalCheckIns, avgCompletionRate, totalStreak };
+  }, [habits]);
+
+  // 闪念统计
+  const memoStats = useMemo(() => {
+    const total = memos.length;
+    const pinned = memos.filter(m => m.isPinned).length;
+    const withTags = memos.filter(m => m.tags && m.tags.length > 0).length;
+    const thisMonth = memos.filter(m => {
+      if (!m.createTime) return false;
+      const memoDate = new Date(m.createTime);
+      const now = new Date();
+      return memoDate.getMonth() === now.getMonth() && 
+             memoDate.getFullYear() === now.getFullYear();
+    }).length;
+    return { total, pinned, withTags, thisMonth };
+  }, [memos]);
+
   const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
 
   return (
@@ -194,7 +259,7 @@ const OverviewStatistics: React.FC<OverviewStatisticsProps> = ({ entries, goals,
       <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-6">综合概览</h2>
       
       {/* 主要统计卡片 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <div className="bg-gradient-to-br from-indigo-50 to-indigo-100/50 dark:from-indigo-900/20 dark:to-indigo-800/10 rounded-2xl p-4 border border-indigo-200/50 dark:border-indigo-800/30">
           <div className="flex items-center gap-2 mb-2">
             <Sparkles size={18} className="text-indigo-600 dark:text-indigo-400" />
@@ -229,6 +294,24 @@ const OverviewStatistics: React.FC<OverviewStatisticsProps> = ({ entries, goals,
           </div>
           <div className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400 mb-1">{reviewStats.avgScore}</div>
           <div className="text-xs text-slate-500 dark:text-slate-500">情绪评分</div>
+        </div>
+
+        <div className="bg-gradient-to-br from-cyan-50 to-cyan-100/50 dark:from-cyan-900/20 dark:to-cyan-800/10 rounded-2xl p-4 border border-cyan-200/50 dark:border-cyan-800/30">
+          <div className="flex items-center gap-2 mb-2">
+            <CheckSquare size={18} className="text-cyan-600 dark:text-cyan-400" />
+            <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">习惯总数</div>
+          </div>
+          <div className="text-2xl font-semibold text-cyan-600 dark:text-cyan-400 mb-1">{habitStats.total}</div>
+          <div className="text-xs text-slate-500 dark:text-slate-500">{habitStats.active} 个进行中</div>
+        </div>
+
+        <div className="bg-gradient-to-br from-rose-50 to-rose-100/50 dark:from-rose-900/20 dark:to-rose-800/10 rounded-2xl p-4 border border-rose-200/50 dark:border-rose-800/30">
+          <div className="flex items-center gap-2 mb-2">
+            <Lightbulb size={18} className="text-rose-600 dark:text-rose-400" />
+            <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">闪念总数</div>
+          </div>
+          <div className="text-2xl font-semibold text-rose-600 dark:text-rose-400 mb-1">{memoStats.total}</div>
+          <div className="text-xs text-slate-500 dark:text-slate-500">本月 {memoStats.thisMonth} 条</div>
         </div>
       </div>
 
@@ -521,6 +604,284 @@ const KnowledgeStatistics: React.FC<KnowledgeStatisticsProps> = ({ knowledgePoin
           <BookOpen size={48} className="mx-auto text-slate-300 dark:text-slate-600 mb-4" />
           <h3 className="text-slate-600 dark:text-slate-400 font-medium mb-1">暂无知识点数据</h3>
           <p className="text-slate-400 dark:text-slate-500 text-sm">开始创建知识点，构建你的知识体系</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 习惯统计组件
+interface HabitStatisticsProps {
+  habits: HabitWithStats[];
+}
+
+const HabitStatistics: React.FC<HabitStatisticsProps> = ({ habits }) => {
+  const stats = useMemo(() => {
+    const total = habits.length;
+    const active = habits.filter(h => h.isActive).length;
+    const totalCheckIns = habits.reduce((acc, h) => acc + (h.totalCheckIns || 0), 0);
+    const avgCompletionRate = total > 0
+      ? Math.round(habits.reduce((acc, h) => acc + (h.completionRate || 0), 0) / total)
+      : 0;
+    const totalStreak = habits.reduce((acc, h) => acc + (h.currentStreak || 0), 0);
+    const maxStreak = habits.length > 0 
+      ? Math.max(...habits.map(h => h.longestStreak || 0))
+      : 0;
+    
+    // 按完成率分组
+    const completionRates = habits.map(h => ({
+      name: h.name,
+      rate: h.completionRate || 0
+    })).sort((a, b) => b.rate - a.rate).slice(0, 10);
+    
+    // 按月份统计打卡次数
+    const monthlyData: Record<string, number> = {};
+    habits.forEach(habit => {
+      habit.recentCheckIns?.forEach(checkIn => {
+        if (checkIn.date) {
+          const date = new Date(checkIn.date);
+          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          monthlyData[monthKey] = (monthlyData[monthKey] || 0) + 1;
+        }
+      });
+    });
+    
+    const monthlyChartData = Object.entries(monthlyData)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-6)
+      .map(([date, count]) => ({
+        date: date.slice(5), // 只显示月份
+        count
+      }));
+
+    return { 
+      total, 
+      active, 
+      totalCheckIns, 
+      avgCompletionRate, 
+      totalStreak, 
+      maxStreak,
+      completionRates,
+      monthlyChartData
+    };
+  }, [habits]);
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-6">习惯统计</h2>
+      
+      {/* 统计卡片 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-gradient-to-br from-cyan-50 to-cyan-100/50 dark:from-cyan-900/20 dark:to-cyan-800/10 rounded-2xl p-4 border border-cyan-200/50 dark:border-cyan-800/30">
+          <div className="text-2xl font-semibold text-cyan-600 dark:text-cyan-400 mb-1">{stats.total}</div>
+          <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">习惯总数</div>
+        </div>
+        <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-900/20 dark:to-blue-800/10 rounded-2xl p-4 border border-blue-200/50 dark:border-blue-800/30">
+          <div className="text-2xl font-semibold text-blue-600 dark:text-blue-400 mb-1">{stats.totalCheckIns}</div>
+          <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">总打卡次数</div>
+        </div>
+        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-900/20 dark:to-emerald-800/10 rounded-2xl p-4 border border-emerald-200/50 dark:border-emerald-800/30">
+          <div className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400 mb-1">{stats.avgCompletionRate}%</div>
+          <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">平均完成率</div>
+        </div>
+        <div className="bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-900/20 dark:to-orange-800/10 rounded-2xl p-4 border border-orange-200/50 dark:border-orange-800/30">
+          <div className="text-2xl font-semibold text-orange-600 dark:text-orange-400 mb-1">{stats.maxStreak}</div>
+          <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">最长连续</div>
+        </div>
+      </div>
+
+      {/* 图表区域 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* 完成率排行 */}
+        {stats.completionRates.length > 0 && (
+          <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-3xl p-6 border border-slate-200/50 dark:border-slate-700/50">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">完成率排行</h3>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={stats.completionRates}>
+                <XAxis 
+                  dataKey="name" 
+                  tick={{ fontSize: 10, fill: '#64748b' }}
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                />
+                <YAxis tick={{ fontSize: 12, fill: '#64748b' }} domain={[0, 100]} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#fff', 
+                    borderRadius: '8px', 
+                    border: '1px solid #e2e8f0',
+                    fontSize: '12px'
+                  }}
+                  formatter={(value: any) => `${value}%`}
+                />
+                <Bar dataKey="rate" fill="#06b6d4" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* 月度打卡趋势 */}
+        {stats.monthlyChartData.length > 0 && (
+          <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-3xl p-6 border border-slate-200/50 dark:border-slate-700/50">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">月度打卡趋势</h3>
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={stats.monthlyChartData}>
+                <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#64748b' }} />
+                <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#fff', 
+                    borderRadius: '8px', 
+                    border: '1px solid #e2e8f0',
+                    fontSize: '12px'
+                  }}
+                />
+                <Line type="monotone" dataKey="count" stroke="#06b6d4" strokeWidth={2} dot={{ r: 4 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* 空状态 */}
+      {stats.total === 0 && (
+        <div className="text-center py-16 bg-slate-50/50 dark:bg-slate-700/30 rounded-3xl border border-dashed border-slate-200 dark:border-slate-700">
+          <CheckSquare size={48} className="mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+          <h3 className="text-slate-600 dark:text-slate-400 font-medium mb-1">暂无习惯数据</h3>
+          <p className="text-slate-400 dark:text-slate-500 text-sm">开始创建习惯，养成好习惯</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 闪念统计组件
+interface MemoStatisticsProps {
+  memos: Memo[];
+}
+
+const MemoStatistics: React.FC<MemoStatisticsProps> = ({ memos }) => {
+  const stats = useMemo(() => {
+    const total = memos.length;
+    const pinned = memos.filter(m => m.isPinned).length;
+    const withTags = memos.filter(m => m.tags && m.tags.length > 0).length;
+    
+    // 按月份统计
+    const monthlyData: Record<string, number> = {};
+    memos.forEach(memo => {
+      if (memo.createTime) {
+        const date = new Date(memo.createTime);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        monthlyData[monthKey] = (monthlyData[monthKey] || 0) + 1;
+      }
+    });
+    
+    const monthlyChartData = Object.entries(monthlyData)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-6)
+      .map(([date, count]) => ({
+        date: date.slice(5), // 只显示月份
+        count
+      }));
+
+    // 标签统计
+    const tagCounts: Record<string, number> = {};
+    memos.forEach(memo => {
+      memo.tags?.forEach(tag => {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+      });
+    });
+    
+    const topTags = Object.entries(tagCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 10)
+      .map(([name, value]) => ({ name, value }));
+
+    return { total, pinned, withTags, monthlyChartData, topTags };
+  }, [memos]);
+
+  const COLORS = ['#f43f5e', '#fb7185', '#fda4af', '#fecdd3', '#ffe4e6'];
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-6">闪念统计</h2>
+      
+      {/* 统计卡片 */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="bg-gradient-to-br from-rose-50 to-rose-100/50 dark:from-rose-900/20 dark:to-rose-800/10 rounded-2xl p-4 border border-rose-200/50 dark:border-rose-800/30">
+          <div className="text-2xl font-semibold text-rose-600 dark:text-rose-400 mb-1">{stats.total}</div>
+          <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">闪念总数</div>
+        </div>
+        <div className="bg-gradient-to-br from-pink-50 to-pink-100/50 dark:from-pink-900/20 dark:to-pink-800/10 rounded-2xl p-4 border border-pink-200/50 dark:border-pink-800/30">
+          <div className="text-2xl font-semibold text-pink-600 dark:text-pink-400 mb-1">{stats.pinned}</div>
+          <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">已置顶</div>
+        </div>
+        <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-900/20 dark:to-purple-800/10 rounded-2xl p-4 border border-purple-200/50 dark:border-purple-800/30">
+          <div className="text-2xl font-semibold text-purple-600 dark:text-purple-400 mb-1">{stats.withTags}</div>
+          <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">已标记</div>
+        </div>
+      </div>
+
+      {/* 图表区域 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* 月度创建趋势 */}
+        {stats.monthlyChartData.length > 0 && (
+          <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-3xl p-6 border border-slate-200/50 dark:border-slate-700/50">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">创建趋势</h3>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={stats.monthlyChartData}>
+                <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#64748b' }} />
+                <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#fff', 
+                    borderRadius: '8px', 
+                    border: '1px solid #e2e8f0',
+                    fontSize: '12px'
+                  }}
+                />
+                <Bar dataKey="count" fill="#f43f5e" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* 标签分布 */}
+        {stats.topTags.length > 0 && (
+          <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-3xl p-6 border border-slate-200/50 dark:border-slate-700/50">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">热门标签</h3>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={stats.topTags}>
+                <XAxis 
+                  dataKey="name" 
+                  tick={{ fontSize: 10, fill: '#64748b' }}
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                />
+                <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#fff', 
+                    borderRadius: '8px', 
+                    border: '1px solid #e2e8f0',
+                    fontSize: '12px'
+                  }}
+                />
+                <Bar dataKey="value" fill="#f43f5e" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* 空状态 */}
+      {stats.total === 0 && (
+        <div className="text-center py-16 bg-slate-50/50 dark:bg-slate-700/30 rounded-3xl border border-dashed border-slate-200 dark:border-slate-700">
+          <Lightbulb size={48} className="mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+          <h3 className="text-slate-600 dark:text-slate-400 font-medium mb-1">暂无闪念数据</h3>
+          <p className="text-slate-400 dark:text-slate-500 text-sm">开始记录闪念，捕捉灵感瞬间</p>
         </div>
       )}
     </div>

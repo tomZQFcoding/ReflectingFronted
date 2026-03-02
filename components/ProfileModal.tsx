@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Camera, Edit3, Save, Sparkles } from 'lucide-react';
+import { X, User, Camera, Edit3, Save, Sparkles, LogOut } from 'lucide-react';
 import { Button } from './Button';
 import { userApi, LoginUserVO, UserUpdateMyRequest } from '../services/userApi';
+import { UserRole } from '../types';
 
 interface ProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: LoginUserVO | null;
   onUpdate: (user: LoginUserVO) => void;
+  onLogout?: () => void;
 }
 
-export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user, onUpdate }) => {
+export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user, onUpdate, onLogout }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -275,7 +277,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
                 </div>
                 <div className="text-center p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl">
                   <div className="text-2xl font-bold text-purple-600 mb-1">
-                    {user.userRole === 'admin' ? '管理员' : '用户'}
+                    {user.userRole?.toLowerCase() === UserRole.ADMIN ? '管理员' : '普通用户'}
                   </div>
                   <div className="text-xs text-slate-500">角色</div>
                 </div>
@@ -283,6 +285,17 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
               {user.createTime && (
                 <div className="mt-4 text-center text-xs text-slate-400">
                   注册时间：{new Date(user.createTime).toLocaleDateString('zh-CN')}
+                </div>
+              )}
+              {onLogout && (
+                <div className="mt-4 pt-4 border-t border-slate-200">
+                  <button
+                    onClick={() => { onClose(); onLogout(); }}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors text-sm font-medium"
+                  >
+                    <LogOut size={18} />
+                    退出登录
+                  </button>
                 </div>
               )}
             </div>
